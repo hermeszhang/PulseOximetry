@@ -6,6 +6,6 @@
 #include <wiringPiI2C.h>
 
 void pulseOxSetup();
-int pulseOxRead();
+int pulseOxRead(int);
 
 #endif

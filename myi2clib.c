@@ -27,32 +27,36 @@ void i2cSetup()
 	delay(WAIT);
 }
 
-uint8_t i2cWrite(uint8_t toSend, uint8_t devAdd)
+/* I2CWRITE *
+----------------------------------------------------------------------------------------------
+i2cWrite takes two parameters, the data to be sent and a flag that determines if the transfer
+ends with a stop bit. Set the 'stopTrue' flag to end the transfer with a stop, or clear it to
+allow further operations.
+--------------------------------------------------------------------------------------------*/
+uint8_t i2cWrite(uint8_t toSend, uint8_t startTrue, uint8_t stopTrue)
 {
 	uint8_t bit, temp;
 	uint8_t mask = 0x80;
 
-	// Device ID + Write
-	devAdd &= 0xFE;
+	// SDA should be an output
+	// Both pins should start off high
 
-	// Set SDA as output
-	pinMode(SDA, OUTPUT);
+	// Start sequence if startTrue set
+	if(startTrue)
+	{
+		// START: SCL is High, SDA goes high-to-low
+		digitalWrite(SDA, HIGH);
+		digitalWrite(SCL, HIGH);
+		delay(WAIT);
+		digitalWrite(SDA, LOW);
+		delay(WAIT);
+		digitalWrite(SCL, LOW);
+	}
 
-	// Start both pins off high
-	digitalWrite(SDA, HIGH);
-	digitalWrite(SCL, HIGH);
-
-	// Wait appropriate time
-	delay(WAIT);
-
-	// START: SCL is High, SDA goes high-to-low
-	digitalWrite(SDA, LOW);
-	delay(WAIT);
-	digitalWrite(SCL, LOW);
-
+	// Send data
 	for(bit=0; bit<8; bit++)
 	{
-		temp = devAdd & (mask >> bit);
+		temp = toSend & (mask >> bit);
 
 		if(temp != 0) digitalWrite(SDA, HIGH);
 		else digitalWrite(SDA, LOW);
@@ -64,29 +68,102 @@ uint8_t i2cWrite(uint8_t toSend, uint8_t devAdd)
 	}
 
 	//Check Acknowledge bit
-	//pinMode(SDA, INPUT);
+	pinMode(SDA, INPUT);
 	delay(WAIT);
 	digitalWrite(SCL, HIGH);
 	temp = digitalRead(SDA);
 	digitalWrite(SCL, LOW);
 
-	// REPEATED START
-
-	// Send Data
-
-	// Check Acknoledge bit
-
-	// STOP
-	digitalWrite(SCL, HIGH);
+	// Revert SDA back to output
 	pinMode(SDA, OUTPUT);
 	delay(WAIT);
-	digitalWrite(SDA, HIGH);
+
+	if(stopTrue)
+	{
+		// STOP
+		digitalWrite(SDA, LOW);
+		delay(WAIT);
+		digitalWrite(SCL, HIGH);
+		delay(WAIT);
+		digitalWrite(SDA, HIGH);
+		delay(WAIT);
+
+		// Reset clock
+		digitalWrite(SCL, LOW);
+	}
 
 	return temp;
 
 }
 
-uint8_t i2cRead()
+uint8_t i2cRead(uint8_t startTrue, uint8_t stopTrue)
 {
+	uint8_t bit, temp;
+	uint8_t mask = 0x80;
+	uint8_t recData = 0;
 
+	if(startTrue)
+	{
+		// START: SCL is High, SDA goes high-to-low
+		digitalWrite(SDA, HIGH);
+		digitalWrite(SCL, HIGH);
+		delay(WAIT);
+		digitalWrite(SDA, LOW);
+		delay(WAIT);
+		digitalWrite(SCL, LOW);
+		delay(WAIT);
+	}
+
+	// Set SDA to input to read
+	pinMode(SDA, INPUT);
+	delay(WAIT);
+
+	for(bit=0; bit<8; bit++)
+	{
+		digitalWrite(SCL, HIGH);
+
+		temp = digitalRead(SDA);
+
+		if(temp != 0) recData |= (mask >> bit);
+
+		digitalWrite(SCL, LOW);
+		delay(WAIT);
+	}
+
+	// Set SDA to output for ACK or NACK
+	pinMode(SDA, OUTPUT);
+
+	// Either send ACK or NACK and stop based on stopTrue
+	if(stopTrue)
+	{
+		// Send NACK bit
+		digitalWrite(SDA, HIGH);
+		delay(WAIT);
+		digitalWrite(SCL, HIGH);
+		delay(WAIT);
+		digitalWrite(SCL, LOW);
+		delay(WAIT);
+
+		// Stop transfer
+		digitalWrite(SCL, HIGH);
+		delay(WAIT);
+		digitalWrite(SDA, HIGH);
+	}
+	else
+	{
+		// Send ACK bit
+		digitalWrite(SDA, LOW);
+		delay(WAIT);
+		digitalWrite(SCL, HIGH);
+		delay(WAIT);
+		digitalWrite(SCL, LOW);
+		delay(WAIT);
+
+		// Prep pins for future actions
+		digitalWrite(SDA, HIGH);
+		delay(WAIT);
+		digitalWrite(SCL, HIGH);
+	}
+
+	return recData;
 }

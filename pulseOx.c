@@ -14,7 +14,7 @@ void pulseOxSetup()
 
 	// Part ID
 	temp = wiringPiI2CReadReg8(pulseFH, 0xFF);
-	printf("Address should be 0x15. Returned address: %x", temp);
+	printf("Address should be 0x15. \n\tReturned address: %x \n", temp);
 
 	// Disable Interrupts
 	wiringPiI2CWriteReg8(pulseFH, 0x02, 0x00);
@@ -25,21 +25,18 @@ void pulseOxSetup()
 
 	// Mode Configuration
 	temp = wiringPiI2CReadReg8(pulseFH, 0x09);
-	printf("New Value for Mode Config: %x \n", temp);
+	printf("\tNew Value for Mode Config: %x \n", temp);
 
 }
 
-int pulseOxRead()
+int pulseOxRead(int value)
 {
-	int i, value;
+	i2cWrite(0xAE, 1, 0);
+	i2cWrite(0xFF, 0, 0);
+	i2cWrite(0xAF, 0, 0);
+	value = i2cRead(0, 1);
 
-	for(i=0; i<20; i++)
-	{
-		value = wiringPiI2CReadReg8(pulseFH, 0x06);
-		printf("%d \n", value);
-
-		delay(1000);
-	}
+	delay(1000);
 
 	return value;
 }
