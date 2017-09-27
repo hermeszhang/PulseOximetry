@@ -7,23 +7,16 @@ int main(void)
 {
 	uint8_t rv;
 
-//	printf("Pulse Oximetry Reader\n\n");
+	printf("Pulse Oximetry Reader\n\n");
 
-//	pulseOxSetup();
+	// Initiate GPIO pins
+	wiringPiSetup();
 
-	// LED TEST
-	pinMode(0, OUTPUT);
-	pinMode(2, OUTPUT);
-
-	digitalWrite(0, 1);
-	digitalWrite(2, 0);
-	delay(1000);
-	digitalWrite(0, 0);
-	digitalWrite(2, 1);
-	delay(1000);
+	// Setup Pulse Oximeter
+	pulseOxSetup();
 
 	// Read the device ID
-	rv = pulseOxRead();
+	rv = pulseOxRead(0xFF);
 	if(rv == 0x15) printf("Device with ID 0x15 connected.\n\n");
  	else printf("Error communicating with device.\n");
 

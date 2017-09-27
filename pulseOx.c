@@ -8,38 +8,44 @@ void pulseOxSetup()
 {
 	int temp = -2;
 
-	// Create filehandle
-	pulseFH = wiringPiI2CSetup(DEV_ID);
-	printf("Filehandle created with address %x \n\n", pulseFH);
+	// Setup I2C pins
+	i2cSetup();
 
-	// Part ID
-	temp = wiringPiI2CReadReg8(pulseFH, 0xFF);
-	printf("Address should be 0x15. \n\tReturned address: %x \n", temp);
+	// Part ID: Register = 0xFF
+	temp = pulseOxRead(0xFF);
+	if(temp == 0x15)
+	{
+		printf("Pulse Oximeter Connected...\n");
+	}
+	else
+	{
+		printf("Pulse Oximeter NOT Connected. - Skipping Setup...\n");
+		return;
+	}
 
 	// Disable Interrupts
-	wiringPiI2CWriteReg8(pulseFH, 0x02, 0x00);
+	pulseOxWrite(0x02,0x0F);
 
 	// LED Pulse Amplitude
-	wiringPiI2CWriteReg8(pulseFH, 0x0C, 0x3F);
-	wiringPiI2CWriteReg8(pulseFH, 0x0D, 0x3F);
-
-	// Mode Configuration
-	temp = wiringPiI2CReadReg8(pulseFH, 0x09);
-	printf("\tNew Value for Mode Config: %x \n", temp);
-
+	pulseOxWrite(0x0C, 0x3F);
+	pulseOxWrite(0x0D, 0x3F);
 }
 
-uint8_t pulseOxRead()
+
+uint8_t pulseOxRead(uint8_t regAdd)
 {
-	uint8_t value;
-
-	i2cSetup();
 	i2cWrite(0xAE, 1, 0);
-	i2cWrite(0xFE, 0, 0);
+	i2cWrite(regAdd, 0, 0);
 	i2cWrite(0xAF, 1, 0);
-	value = i2cRead(0, 1);
+	regAdd = i2cRead(0, 1);
 
-	delay(1000);
+	return regAdd;
+}
 
-	return value;
+
+void pulseOxWrite(uint8_t regAdd, uint8_t value)
+{
+	i2cWrite(0xAE, 1, 0);
+	i2cWrite(regAdd, 0, 0);
+	i2cWrite(value, 0, 1);
 }

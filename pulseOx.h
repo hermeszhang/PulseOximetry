@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 void pulseOxSetup();
-uint8_t pulseOxRead();
+uint8_t pulseOxRead(uint8_t);
+void pulseOxWrite(uint8_t, uint8_t);
 
 #endif
