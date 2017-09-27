@@ -29,11 +29,14 @@ void pulseOxSetup()
 
 }
 
-int pulseOxRead(int value)
+uint8_t pulseOxRead()
 {
+	uint8_t value;
+
+	i2cSetup();
 	i2cWrite(0xAE, 1, 0);
-	i2cWrite(0xFF, 0, 0);
-	i2cWrite(0xAF, 0, 0);
+	i2cWrite(0xFE, 0, 0);
+	i2cWrite(0xAF, 1, 0);
 	value = i2cRead(0, 1);
 
 	delay(1000);
