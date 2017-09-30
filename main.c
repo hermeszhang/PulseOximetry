@@ -3,9 +3,12 @@
 #include "pulseOx.h"
 #include "myi2clib.h"
 
+#define DATA_ELEMENTS 32
+
 int main(void)
 {
 	uint8_t rv;
+	uint8_t pulseOxData[DATA_ELEMENTS];
 
 	printf("Pulse Oximetry Reader\n\n");
 
@@ -20,20 +23,18 @@ int main(void)
 	if(rv == 0x15) printf("Device with ID 0x15 connected.\n\n");
  	else printf("Error communicating with device.\n");
 
-/*	i2cSetup();
+	pulseOxCleanSlate();
+	delay(1000);
 
-	rv = i2cWrite(0xFF, 0x00);
-	printf("rv = %d \n", rv);
+	int i, j;
+	for(j=0; j<30; j++)
+	{
+		pulseOxReadMulti(0x07, pulseOxData, DATA_ELEMENTS);
 
-	rv = i2cWrite(0xFF, 0xFF);
-	printf("rv = %d \n", rv);
+		for(i=0; i<DATA_ELEMENTS; i++)	printf("%d ", pulseOxData[i]);
 
-	rv = i2cWrite(0xFF, 0xAE);
-	printf("rv = %d \n", rv);
-
-	rv = i2cWrite(0xFF, 0xFF);
-	printf("rv = %d \n", rv);
-*/
+		printf("\n");
+	}
 
 	return 0;
 }

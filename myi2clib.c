@@ -5,7 +5,7 @@
 
 #define SDA 25
 #define SCL 24
-#define WAIT 1		// 1 millisecond
+#define WAIT 0		// 1 millisecond
 
 void i2cSetup()
 {
