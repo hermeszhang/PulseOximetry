@@ -8,7 +8,7 @@
 int main(void)
 {
 	uint8_t rv;
-	uint8_t pulseOxData[DATA_ELEMENTS];
+	uint32_t pulseOxData[DATA_ELEMENTS];
 
 	printf("Pulse Oximetry Reader\n\n");
 
@@ -18,7 +18,7 @@ int main(void)
 	// Setup Pulse Oximeter
 	pulseOxSetup();
 
-	// Read the device ID
+	// Read the device ID (Returns 0x15)
 	rv = pulseOxRead(0xFF);
 	if(rv == 0x15) printf("Device with ID 0x15 connected.\n\n");
  	else printf("Error communicating with device.\n");
@@ -27,14 +27,17 @@ int main(void)
 	delay(1000);
 
 	int i, j;
-	for(j=0; j<30; j++)
+	for(j=0; j<1000; j++)
 	{
-		pulseOxReadMulti(0x07, pulseOxData, DATA_ELEMENTS);
+		rv = pulseOxReadHeartRateData(pulseOxData);
 
-		for(i=0; i<DATA_ELEMENTS; i++)	printf("%d ", pulseOxData[i]);
-
-		printf("\n");
+		if(rv == 1)
+		{
+			for(i=0; i<20; i++)	printf("%x \n", pulseOxData[i]);
+		}
 	}
+
+	pulseOxShutdown();
 
 	return 0;
 }

@@ -1,9 +1,26 @@
+/*****************************************************************************************
+
+pulseOx.c
+
+These funtions are used for communicating with the MAX30102 pulse oximeter
+and heartrate sensor. They are built from the "myi2clib" library functions. To begin
+using the MAX30102, call the pulseOxSetup() function to write to the registers some
+basic values. Next, reset some values back to their initial states using
+pulseOxCleanSlate(). Finally, you can begin reading using the pulseOxReadHeartRateData()
+function. When you are finished using the device, shut it down with pulseOxShutdown().
+
+*****************************************************************************************/
+
 #include "pulseOx.h"
 
 #define DEV_ID 57
 
-int pulseFH;
+uint8_t sampleArray[60];
 
+/* int pulseOxSetup()
+Run this function before attempting to read any data from the MAX30102.
+Sets the correct configurations for communicating and reading. Returns
+0 if device is found and confugured. Returns 1 otherwise. */
 int pulseOxSetup()
 {
 	int temp = -2;
@@ -27,13 +44,13 @@ int pulseOxSetup()
 	pulseOxWrite(0x09, 0x40);
 
 	// Disable Interrupts
-	pulseOxWrite(0x02, 0x00);
+	pulseOxWrite(0x02, 0x80);
 
 	// FIFO Configuration
-	pulseOxWrite(0x08, 0x00);
+	pulseOxWrite(0x08, 0x0C);
 
 	// Mode Configuration
-	pulseOxWrite(0x09, 0x03); //02h for red HR, 03h for IR PO
+	pulseOxWrite(0x09, 0x02); //02h for red HR, 03h for IR PO
 
 	// SpO2 Configuration
 	pulseOxWrite(0x0A, 0x27);
@@ -49,7 +66,52 @@ int pulseOxSetup()
 	return 0;
 }
 
+/* int pulseOxReadHeartRateData()
+This function is used to read data from the MAX30102. It first checks if enough
+samples have been collected. Once enough have been stored in the device, a bulk
+read is performed using pulseOxReadMulti(). The only parameter that needs to
+be sent is an array of at least 32 uint8_t elements in length. The function will
+only collect the amount of sample available. When the function reaches its end,
+the calling source file will have the data stored in the array, properly
+formatted. This uses a polling method where the register is read before every
+attempt but an interrupt pin could also be used if available. Only when there
+are at least 20 samples stored will it begin to read. The function returns 0
+if no data was collected and a 1 otherwise. Use the data as soon as it it
+returned or it will be deleted nect time the function is called. */
+int pulseOxReadHeartRateData(uint32_t *formattedData)
+{
+	// Check if there are enough samples
+	if(!(pulseOxRead(0x00) & 0x80)){printf("Waiting...\n"); return 0;}
 
+	// Begin reading data (is it 20 or 19??)
+	pulseOxReadMulti(0x07, sampleArray, 60);
+
+	// Organize Data
+	int i = 0;
+	int j = 0;
+
+	if(!(sampleArray[i] & 0xFC)) i++;
+	else if(!(sampleArray[i] & 0xFC)) i++;
+	else if(!(sampleArray[i] & 0xFC)) i++;
+
+	printf("i starts at %d \n", i);
+
+	while(j<20)
+	{
+		formattedData[j] = (sampleArray[i] << 16) | (sampleArray[i+1] << 8) | sampleArray[i+2];
+		i+=3;
+		j++;
+	}
+
+	// Indicate new data is ready
+	return 1;
+}
+
+
+
+/* uint8_t pulseOxRead(uint8_t regAdd)
+This is the general read function for the MAX31302. It informs the device
+which register it wants to read from and then returns the 8-bit data.*/
 uint8_t pulseOxRead(uint8_t regAdd)
 {
 	i2cWrite(0xAE, 1, 0);
@@ -60,6 +122,10 @@ uint8_t pulseOxRead(uint8_t regAdd)
 	return regAdd;
 }
 
+/* void pulseOxReadMulti(uint8_t regAdd, uint8_t *dataArray, int size)
+Simialr to pulseOxRead(), this function will read multiple bytes from a
+single register. The amount of data to read is indicated by the 'size'
+parameter. Data is stored in an array created by the calling source file. */
 void pulseOxReadMulti(uint8_t regAdd, uint8_t *dataArray, int size)
 {
 	i2cWrite(0xAE, 1, 0);
@@ -75,6 +141,8 @@ void pulseOxReadMulti(uint8_t regAdd, uint8_t *dataArray, int size)
 	dataArray[size-1] = i2cRead(0, 1);
 }
 
+/* void pulseOxWrite(uint8_t regAdd, uint8_t value)
+This function will write 8-bit data to the register specified. */
 void pulseOxWrite(uint8_t regAdd, uint8_t value)
 {
 	i2cWrite(0xAE, 1, 0);
@@ -82,9 +150,20 @@ void pulseOxWrite(uint8_t regAdd, uint8_t value)
 	i2cWrite(value, 0, 1);
 }
 
+/* void pulseOxCleanSlate()
+Use this function to clear the values stored in the MAX31302's read, write,
+and data registers. This should be called when switching between SpO2 and
+HR modes. */
 void pulseOxCleanSlate()
 {
+	uint8_t tempArray[32];
 	pulseOxWrite(0x04, 0x00);
 	pulseOxWrite(0x05, 0x00);
 	pulseOxWrite(0x06, 0x00);
+	pulseOxReadMulti(0x07, tempArray, 32);
+}
+
+void pulseOxShutdown()
+{
+	pulseOxWrite(0x09, 0x80);
 }
