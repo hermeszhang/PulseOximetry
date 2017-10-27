@@ -15,22 +15,28 @@ function. When you are finished using the device, shut it down with pulseOxShutd
 
 #define DEV_ID 57
 #define SAMPLE 20
-#define MAF 5
+#define MAF 5   // moving average filter variables
+#define Fs 100  // Sampling frequency
+#define CMPR_AMT 10
 
-uint8_t sampleArray[SAMPLE*3];
+uint8_t sampleArray[SAMPLE*3];  // Holds raw recorded data
 uint32_t HRData[SAMPLE];		// Array for holding formatted HR data
-//uint32_t HRDataExtended[2*SAMPLE];	// Array for holding
+uint32_t avgArray[SAMPLE*2];      // Array for averages
+uint32_t HRInput[MAF];		    // Array for holding the averaged input samples
 uint8_t heartRate[MAF];		// Array for holding averaged heart rate
-uint32_t HRInput[MAF];		// Array for holding the averaged input samples
 
+uint8_t hrFlag = 0;
+uint16_t heartRateFinal = 70;
+uint16_t smpMax = 20;
+uint16_t smpCt = 0;
+uint16_t tmrCt = 0;
+uint16_t tmrMax = 500;
 uint32_t highest = 0x80000;
-uint32_t lowest  = 0x80000;
-uint32_t prevSamp = 0;
 
 /* int pulseOxSetup()
 Run this function before attempting to read any data from the MAX30102.
 Sets the correct configurations for communicating and reading. Returns
-0 if device is found and confugured. Returns 1 otherwise. */
+0 if device is found and configured. Returns 1 otherwise. */
 int pulseOxSetup()
 {
 	int temp = -2;
@@ -73,12 +79,19 @@ int pulseOxSetup()
 	// Multi-LED Mode Control Registers
 //	pulseOxWrite(0x11, 0x00);
 
+    int i;
+    for(i=0; i<MAF; i++)
+    {
+        heartRate[i] = heartRateFinal;
+    }
+
 	return 0;
 }
 
 int pulseOxReadHeartRate()
 {
 	int rv, i, j;
+    int largestAvgSmpFl = 1;
 	uint32_t avg;
 
 	rv = pulseOxReadHeartRateData(HRData);
@@ -96,16 +109,83 @@ int pulseOxReadHeartRate()
 			avg += HRData[i+SAMPLE-j];
 		}
 
-		// Determine if 
-		if( avg > ((highest - lowest)/2) )
-		{
-			if( avg > highest )
-			{
-				highest = avg;
-				smpCt = 0;
-			}
-		}
+        // Write new averaged value to array
+		avgArray[i+SAMPLE] = avg;
+
+		// Determine if avg is greater than the past
+		for(j=0; j<CMPR_AMT; j++)
+        {
+            if(avg < avgArray[i+SAMPLE-CMPR_AMT+j])
+            {
+                largestAvgSmpFl = 0;
+                break;
+            }
+        }
+
+        // Flag set if calculated avg was more than the past CMPR_AMT values
+        if(largestAvgSmpFl == 1)
+        {
+            // Avg is at least 75% of the highest value
+            if(avg > (0.75*highest))
+            {
+                hrFlag = 1;
+
+                // Determine if this is the new highest value
+                if(avg > highest)
+                {
+                    highest = (avg + highest) / 2;
+                }
+
+                // Reset smpCt to 0 because new high value was found
+                smpCt = 0;
+            }
+            else
+            {
+                hrFlag = 0;
+            }
+        }
+
+        // Increment counters
+        smpCt++;
+        tmrCt++;
+
+        // Check if tmrCt has been going on too long
+        if(tmrCt > tmrMax)
+        {
+            highest = 0x80000;
+            tmrCt = 0;
+            smpCt = 0;
+        }
+
+        // Check if smpCt has reached max
+        if((smpCt > smpMax)&&(hrFlag == 1))
+        {
+            // Shift values up
+            for(j=0; j<MAF-1; j++)
+            {
+                heartRate[j+1] = heartRate[j];
+            }
+
+            // Calculate heart rate
+            heartRate[0] = (60.0 * Fs) / (tmrCt - smpCt + 1);
+
+            // Reset smpCt
+            smpCt = 0;
+
+            // Calculate heart rate
+            heartRateFinal = heartRate[0];
+
+            for(j=1; j<MAF; j++)
+            {
+                heartRateFinal+=heartRate[j];
+            }
+
+            heartRateFinal/=MAF;
+        }
+
 	}
+
+	return heartRateFinal
 }
 
 /* int pulseOxReadHeartRateData()
