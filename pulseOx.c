@@ -14,8 +14,18 @@ function. When you are finished using the device, shut it down with pulseOxShutd
 #include "pulseOx.h"
 
 #define DEV_ID 57
+#define SAMPLE 20
+#define MAF 5
 
-uint8_t sampleArray[60];
+uint8_t sampleArray[SAMPLE*3];
+uint32_t HRData[SAMPLE];		// Array for holding formatted HR data
+//uint32_t HRDataExtended[2*SAMPLE];	// Array for holding
+uint8_t heartRate[MAF];		// Array for holding averaged heart rate
+uint32_t HRInput[MAF];		// Array for holding the averaged input samples
+
+uint32_t highest = 0x80000;
+uint32_t lowest  = 0x80000;
+uint32_t prevSamp = 0;
 
 /* int pulseOxSetup()
 Run this function before attempting to read any data from the MAX30102.
@@ -66,6 +76,38 @@ int pulseOxSetup()
 	return 0;
 }
 
+int pulseOxReadHeartRate()
+{
+	int rv, i, j;
+	uint32_t avg;
+
+	rv = pulseOxReadHeartRateData(HRData);
+
+	// Returning -1 indicates that the data is not ready
+	// otherwise return the value of the heart rate.
+	if(rv == 0) return -1;
+
+	for(i=0; i<SAMPLE; i++)
+	{
+		// First find the moving average of the input to smooth signal
+		avg = 0;
+		for(j=0; j<MAF; j++)
+		{
+			avg += HRData[i+SAMPLE-j];
+		}
+
+		// Determine if 
+		if( avg > ((highest - lowest)/2) )
+		{
+			if( avg > highest )
+			{
+				highest = avg;
+				smpCt = 0;
+			}
+		}
+	}
+}
+
 /* int pulseOxReadHeartRateData()
 This function is used to read data from the MAX30102. It first checks if enough
 samples have been collected. Once enough have been stored in the device, a bulk
@@ -81,7 +123,7 @@ returned or it will be deleted nect time the function is called. */
 int pulseOxReadHeartRateData(uint32_t *formattedData)
 {
 	// Check if there are enough samples
-	if(!(pulseOxRead(0x00) & 0x80)){printf("Waiting...\n"); return 0;}
+	if(!(pulseOxRead(0x00) & 0x80)){ return 0;}
 
 	// Begin reading data (is it 20 or 19??)
 	pulseOxReadMulti(0x07, sampleArray, 60);
@@ -96,9 +138,10 @@ int pulseOxReadHeartRateData(uint32_t *formattedData)
 
 	printf("i starts at %d \n", i);
 
-	while(j<20)
+	while(j<SAMPLE)
 	{
-		formattedData[j] = (sampleArray[i] << 16) | (sampleArray[i+1] << 8) | sampleArray[i+2];
+		// Array is offset so algorithm can access past values
+		formattedData[j+SAMPLE] = (sampleArray[i] << 16) | (sampleArray[i+1] << 8) | sampleArray[i+2];
 		i+=3;
 		j++;
 	}
