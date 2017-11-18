@@ -11,19 +11,32 @@ function. When you are finished using the device, shut it down with pulseOxShutd
 
 *****************************************************************************************/
 
+#include <stdio.h>
 #include "pulseOx.h"
 
 #define DEV_ID 57
-#define SAMPLE 20
-#define MAF 5   // moving average filter variables
+#define SAMPLE 1
+#define MAF 10   // moving average filter variables
 #define Fs 100  // Sampling frequency
 #define CMPR_AMT 10
+#define TOTAL_SIZE 1200
+
+// TO FIX: File to store data
+FILE * pFile;
+unsigned int colCount, rowCount;
 
 uint8_t sampleArray[SAMPLE*3];  // Holds raw recorded data
 uint32_t HRData[SAMPLE];		// Array for holding formatted HR data
 uint32_t avgArray[SAMPLE*2];      // Array for averages
 uint32_t HRInput[MAF];		    // Array for holding the averaged input samples
 uint8_t heartRate[MAF];		// Array for holding averaged heart rate
+
+uint32_t timeKeep[TOTAL_SIZE];
+uint32_t formattedData[TOTAL_SIZE];
+uint32_t averagedData[TOTAL_SIZE];
+uint32_t records[300];
+int globalCounter = 0;
+unsigned int currentElement = 0;
 
 uint8_t hrFlag = 0;
 uint16_t heartRateFinal = 70;
@@ -32,6 +45,8 @@ uint16_t smpCt = 0;
 uint16_t tmrCt = 0;
 uint16_t tmrMax = 500;
 uint32_t highest = 0x80000;
+
+uint32_t lowest = 0x7FFFFF;
 
 /* int pulseOxSetup()
 Run this function before attempting to read any data from the MAX30102.
@@ -60,7 +75,7 @@ int pulseOxSetup()
 	pulseOxWrite(0x09, 0x40);
 
 	// Disable Interrupts
-	pulseOxWrite(0x02, 0x80);
+	pulseOxWrite(0x02, 0x40);
 
 	// FIFO Configuration
 	pulseOxWrite(0x08, 0x0C);
@@ -85,13 +100,95 @@ int pulseOxSetup()
         heartRate[i] = heartRateFinal;
     }
 
+	// TO FIX: Start array counters at 0
+	colCount = 0;
+	rowCount = 0;
+
 	return 0;
 }
 
 int pulseOxReadHeartRate()
 {
+	int index, index2;
+	int samp, slope;
+	int slopeThresh = 1;
+	int posSlope = 0;
+	int negSlope = 0;
+	int timeIndex = 0;
+	int posThresh = 6;
+	int negThresh = 6;
+	int highBeat = 0;
+	int markTime[50];
+	int tempTime = 0;
+
+	// Calculate the averaged values
+	for(index=0; index<=(TOTAL_SIZE - MAF); index++)
+	{
+		averagedData[index] = 0;
+
+		for(index2 = 0; index2 < MAF; index2++)
+		{
+			averagedData[index] += formattedData[index + index2];
+		}
+
+		averagedData[index] /= MAF;
+	}
+
+	// Use derivatives to calculate time between beats
+	for(samp=0; samp<(TOTAL_SIZE - MAF - 1); samp++)
+	{
+		slope = (averagedData[samp+1] - averagedData[samp-1])/(1.0*(timeKeep[MAF+samp+1] - timeKeep[MAF+samp-1]));
+
+		if(slope > slopeThresh)
+		{
+			posSlope++;
+			negSlope=0;
+
+			if((posSlope > posThresh)&&(highBeat==0))
+			{
+				highBeat = 1;
+				markTime[timeIndex] = tempTime;
+				timeIndex++;
+			}
+			else if(posSlope == 1)
+			{
+				tempTime = timeKeep[MAF+samp];
+			}
+		}
+		else if(slope < 0)
+		{
+			negSlope++;
+
+			if((negSlope > negThresh)&&(highBeat==1))
+			{
+				highBeat = 0;
+				posSlope = 0;
+				negSlope = 0;
+			}
+		}
+	}
+
+	// Calculate heartrate from the difference in times
+	int timeSamples = timeIndex;
+	int heartRateArray[50];
+	int i;
+
+	printf("%d samples recorded. \n", timeSamples);
+
+	for(i=0; i<(timeIndex-1); i++)
+	{
+		heartRateArray[i] = (markTime[i+1] - markTime[i])*60;
+		printf("HR: %d \n", heartRateArray[i]);
+	}
+
+	return 0;
+}
+
+/*
+int pulseOxReadHeartRate()
+{
 	int rv, i, j;
-    int largestAvgSmpFl = 1;
+	int largestAvgSmpFl = 1;
 	uint32_t avg;
 
 	rv = pulseOxReadHeartRateData(HRData);
@@ -185,8 +282,16 @@ int pulseOxReadHeartRate()
 
 	}
 
-	return heartRateFinal
+	// Shift avg values down
+	for(j=0; j<SAMPLE; j++)
+	{
+		avgArray[j] = avgArray[SAMPLE+j];
+	}
+
+	return heartRateFinal;
 }
+*/
+
 
 /* int pulseOxReadHeartRateData()
 This function is used to read data from the MAX30102. It first checks if enough
@@ -200,14 +305,35 @@ attempt but an interrupt pin could also be used if available. Only when there
 are at least 20 samples stored will it begin to read. The function returns 0
 if no data was collected and a 1 otherwise. Use the data as soon as it it
 returned or it will be deleted nect time the function is called. */
-int pulseOxReadHeartRateData(uint32_t *formattedData)
+int pulseOxReadHeartRateData()
 {
 	// Check if there are enough samples
-	if(!(pulseOxRead(0x00) & 0x80)){ return 0;}
+//	if(!(pulseOxRead(0x00) & 0x80)){ return 0; }
 
-	// Begin reading data (is it 20 or 19??)
-	pulseOxReadMulti(0x07, sampleArray, 60);
+	// Check if new data is available
+	if((pulseOxRead(0x00) & 0x40) == 0){ return 0; }
 
+	// Begin reading data; 3 Bytes per sample
+	pulseOxReadMulti(0x07, sampleArray, 3);
+
+	// Record time
+	timeKeep[colCount] = millis();
+
+	// Clear data in register
+	pulseOxWrite(0x04, 0x00);
+	pulseOxWrite(0x06, 0x00);
+
+	// Format data
+	formattedData[colCount] = (sampleArray[0] << 16) | (sampleArray[1] << 8)| sampleArray[2];
+
+	colCount++;
+	if(colCount >= TOTAL_SIZE)
+	{
+		pulseOxPrint();
+
+		return 42;
+	}
+/*
 	// Organize Data
 	int i = 0;
 	int j = 0;
@@ -216,16 +342,24 @@ int pulseOxReadHeartRateData(uint32_t *formattedData)
 	else if(!(sampleArray[i] & 0xFC)) i++;
 	else if(!(sampleArray[i] & 0xFC)) i++;
 
-	printf("i starts at %d \n", i);
-
 	while(j<SAMPLE)
 	{
 		// Array is offset so algorithm can access past values
-		formattedData[j+SAMPLE] = (sampleArray[i] << 16) | (sampleArray[i+1] << 8) | sampleArray[i+2];
+		formattedData[currentElement] = (sampleArray[0] << 16) | (sampleArray[1] << 8) | sampleArray[2];
 		i+=3;
 		j++;
+
+		if(formattedData[j-1+SAMPLE] < lowest) lowest = formattedData[j-1+SAMPLE];
 	}
 
+	if(globalCounter >= 300) return 1;
+
+	for(j=0;j<SAMPLE;j++)
+	{
+		records[globalCounter + j] = formattedData[j+SAMPLE];
+	}
+	globalCounter += SAMPLE;
+*/
 	// Indicate new data is ready
 	return 1;
 }
@@ -289,4 +423,33 @@ void pulseOxCleanSlate()
 void pulseOxShutdown()
 {
 	pulseOxWrite(0x09, 0x80);
+}
+
+/*Save data to a CSV file to graph the points later*/
+void pulseOxPrint()
+{
+	int col, row;
+
+	//const char *fileName = "Heart_Rate_Data.csv";
+	pFile = fopen("Heart_Rate_Data.csv", "w");
+
+	for(col=0; col<TOTAL_SIZE; col++)
+	{
+		fprintf(pFile, "%u,", formattedData[col]); 
+		//fwrite(&formattedData[col], sizeof(uint32_t), 1, pFile);
+		//fputs(", ", pFile);
+	}
+
+	fprintf(pFile, "\n");
+
+	for(col=0; col<TOTAL_SIZE; col++)
+	{
+		fprintf(pFile, "%u,", timeKeep[col]); 
+		//fwrite(&timeKeep[col], sizeof(uint8_t), 1, pFile);
+		//fputs(", ", pFile);
+	}
+
+	fprintf(pFile, "\n");
+
+	fclose(pFile);
 }

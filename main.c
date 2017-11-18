@@ -7,7 +7,7 @@
 
 int main(void)
 {
-	uint8_t rv;
+	int rv = 0;
 	uint32_t pulseOxData[DATA_ELEMENTS];
 
 	printf("Pulse Oximetry Reader\n\n");
@@ -26,16 +26,17 @@ int main(void)
 	pulseOxCleanSlate();
 	delay(1000);
 
-	int i, j;
-	for(j=0; j<1000; j++)
+	while(rv != 42)
 	{
-		rv = pulseOxReadHeartRateData(pulseOxData);
+		rv = pulseOxReadHeartRateData();
 
-		if(rv == 1)
-		{
-			for(i=0; i<20; i++)	printf("%x \n", pulseOxData[i]);
-		}
+		if(rv == 42)
+		printf("Comleted.\n\n");
 	}
+
+	pulseOxReadHeartRate();
+
+//	pulseOxPrint();
 
 	pulseOxShutdown();
 
