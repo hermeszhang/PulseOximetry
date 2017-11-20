@@ -16,10 +16,10 @@ function. When you are finished using the device, shut it down with pulseOxShutd
 
 #define DEV_ID 57
 #define SAMPLE 1
-#define MAF 10   // moving average filter variables
+#define MAF 5   // moving average filter variables
 #define Fs 100  // Sampling frequency
 #define CMPR_AMT 10
-#define TOTAL_SIZE 1200
+#define TOTAL_SIZE 1000
 
 // TO FIX: File to store data
 FILE * pFile;
@@ -33,7 +33,7 @@ uint8_t heartRate[MAF];		// Array for holding averaged heart rate
 
 uint32_t timeKeep[TOTAL_SIZE];
 uint32_t formattedData[TOTAL_SIZE];
-uint32_t averagedData[TOTAL_SIZE];
+int averagedData[TOTAL_SIZE];
 uint32_t records[300];
 int globalCounter = 0;
 unsigned int currentElement = 0;
@@ -110,16 +110,33 @@ int pulseOxSetup()
 int pulseOxReadHeartRate()
 {
 	int index, index2;
-	int samp, slope;
-	int slopeThresh = 1;
+	int samp;
+	double slope;
+	double slopeThresh = 0.5;
+	double negSlopeThresh = -0.5;
 	int posSlope = 0;
 	int negSlope = 0;
 	int timeIndex = 0;
-	int posThresh = 6;
-	int negThresh = 6;
+	int posThresh = 4;
+	int negThresh = 4;
 	int highBeat = 0;
 	int markTime[50];
 	int tempTime = 0;
+	int minCut = 0;
+
+	// Remove some DC bias
+
+	minCut = formattedData[0];
+
+	for(index=0; index<TOTAL_SIZE; index++)
+	{
+		if(formattedData[index] < minCut) minCut = formattedData[index];
+	}
+
+	for(index=0; index<TOTAL_SIZE; index++)
+	{
+		formattedData[index] -= minCut;
+	}
 
 	// Calculate the averaged values
 	for(index=0; index<=(TOTAL_SIZE - MAF); index++)
@@ -137,30 +154,36 @@ int pulseOxReadHeartRate()
 	// Use derivatives to calculate time between beats
 	for(samp=0; samp<(TOTAL_SIZE - MAF - 1); samp++)
 	{
-		slope = (averagedData[samp+1] - averagedData[samp-1])/(1.0*(timeKeep[MAF+samp+1] - timeKeep[MAF+samp-1]));
+		slope = (1.0*(averagedData[samp+1] - averagedData[samp-1])) / (1.0*(timeKeep[MAF+samp+1] - timeKeep[MAF+samp-1]));
+		printf("%f \n", slope);
 
 		if(slope > slopeThresh)
 		{
 			posSlope++;
-			negSlope=0;
+			negSlope--;
+
+			if(negSlope < 0) negSlope = 0;
 
 			if((posSlope > posThresh)&&(highBeat==0))
 			{
 				highBeat = 1;
-				markTime[timeIndex] = tempTime;
+	printf("High Beat = 1\n");
+				posSlope = 0;
+				negSlope = 0;
+				markTime[timeIndex] = timeKeep[samp+4];
 				timeIndex++;
 			}
-			else if(posSlope == 1)
-			{
-				tempTime = timeKeep[MAF+samp];
-			}
 		}
-		else if(slope < 0)
+		else if(slope < negSlopeThresh)
 		{
 			negSlope++;
+			posSlope--;
+
+			if(posSlope < 0) posSlope = 0;
 
 			if((negSlope > negThresh)&&(highBeat==1))
 			{
+	printf("High Beat = 0\n");
 				highBeat = 0;
 				posSlope = 0;
 				negSlope = 0;
@@ -171,15 +194,20 @@ int pulseOxReadHeartRate()
 	// Calculate heartrate from the difference in times
 	int timeSamples = timeIndex;
 	int heartRateArray[50];
+	int heartRate = 0;
 	int i;
 
 	printf("%d samples recorded. \n", timeSamples);
 
 	for(i=0; i<(timeIndex-1); i++)
 	{
-		heartRateArray[i] = (markTime[i+1] - markTime[i])*60;
+		heartRateArray[i] = 60000/(markTime[i+1] - markTime[i]);
 		printf("HR: %d \n", heartRateArray[i]);
+		heartRate += heartRateArray[i];
 	}
+
+	heartRate /= (timeIndex -1);
+	printf("Heart Rate: %d \n", heartRate);
 
 	return 0;
 }
