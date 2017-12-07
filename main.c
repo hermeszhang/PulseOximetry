@@ -31,7 +31,7 @@ int main(void)
 		rv = pulseOxReadHeartRateData();
 
 		if(rv == 42)
-		printf("Comleted.\n\n");
+		printf("Completed.\n\n");
 	}
 
 	pulseOxReadHeartRate();

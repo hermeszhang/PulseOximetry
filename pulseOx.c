@@ -16,7 +16,7 @@ function. When you are finished using the device, shut it down with pulseOxShutd
 
 #define DEV_ID 57
 #define SAMPLE 1
-#define MAF 5   // moving average filter variables
+#define MAF 10   // moving average filter variables
 #define Fs 100  // Sampling frequency
 #define CMPR_AMT 10
 #define TOTAL_SIZE 1000
@@ -29,11 +29,10 @@ uint8_t sampleArray[SAMPLE*3];  // Holds raw recorded data
 uint32_t HRData[SAMPLE];		// Array for holding formatted HR data
 uint32_t avgArray[SAMPLE*2];      // Array for averages
 uint32_t HRInput[MAF];		    // Array for holding the averaged input samples
-uint8_t heartRate[MAF];		// Array for holding averaged heart rate
+double heartRate;		// Array for holding averaged heart rate
 
 uint32_t timeKeep[TOTAL_SIZE];
 uint32_t formattedData[TOTAL_SIZE];
-int averagedData[TOTAL_SIZE];
 uint32_t records[300];
 int globalCounter = 0;
 unsigned int currentElement = 0;
@@ -94,11 +93,7 @@ int pulseOxSetup()
 	// Multi-LED Mode Control Registers
 //	pulseOxWrite(0x11, 0x00);
 
-    int i;
-    for(i=0; i<MAF; i++)
-    {
-        heartRate[i] = heartRateFinal;
-    }
+        heartRate = heartRateFinal;
 
 	// TO FIX: Start array counters at 0
 	colCount = 0;
@@ -110,104 +105,148 @@ int pulseOxSetup()
 int pulseOxReadHeartRate()
 {
 	int index, index2;
-	int samp;
-	double slope;
-	double slopeThresh = 0.5;
-	double negSlopeThresh = -0.5;
-	int posSlope = 0;
-	int negSlope = 0;
 	int timeIndex = 0;
-	int posThresh = 4;
-	int negThresh = 4;
-	int highBeat = 0;
-	int markTime[50];
+	uint32_t markTime[100];
 	int tempTime = 0;
-	int minCut = 0;
 
-	// Remove some DC bias
-
-	minCut = formattedData[0];
-
-	for(index=0; index<TOTAL_SIZE; index++)
-	{
-		if(formattedData[index] < minCut) minCut = formattedData[index];
-	}
-
-	for(index=0; index<TOTAL_SIZE; index++)
-	{
-		formattedData[index] -= minCut;
-	}
 
 	// Calculate the averaged values
-	for(index=0; index<=(TOTAL_SIZE - MAF); index++)
+	int totalAvgValues = TOTAL_SIZE - MAF;
+	double tempArray[totalAvgValues];
+
+	for(index=0; index < totalAvgValues; index++)
 	{
-		averagedData[index] = 0;
+		tempArray[index] = 0;
+
+		// Starts at 1 because sometimes the first sample
+		// is extremely large and not representative of the
+		// actual heart rate.
+		for(index2 = 0; index2 < MAF; index2++)
+		{
+			tempArray[index] += (double)formattedData[1 + index + index2];
+		}
+
+		tempArray[index] /= MAF;
+	}
+
+//	printf("Values Averaged. Three random Values: \n %f, %f, %f \n", tempArray[10], tempArray[100], tempArray[500]);
+
+	// Calculate the derivative of the signal
+	int totalDerValues = totalAvgValues - 2;
+	int timeIndexStart = (MAF + 3) / 2;
+	double numerator, denominator;
+
+	for(index = 0; index < totalDerValues; index++)
+	{
+		numerator = tempArray[index + 2] - tempArray[index];
+		denominator = (double)timeKeep[timeIndexStart + index] - timeKeep[timeIndexStart + index + 2];
+
+//		printf("N: %f, D: %f, t2: %d, t1: %d\n", numerator, denominator, timeKeep[timeIndexStart + index], timeKeep[timeIndexStart + index + 2]);
+
+		tempArray[index] = numerator / denominator;
+	}
+
+//	printf("Derivative Calculated. Three Random Values:\n %f, %f, %f \n", tempArray[10], tempArray[100], tempArray[500]);
+
+	// Smooth derivative signal
+	int totalDerSmooth = totalDerValues - MAF;
+	double der;
+
+	for(index = 0; index < (totalDerSmooth - MAF); index++)
+	{
+		der = 0.0;
 
 		for(index2 = 0; index2 < MAF; index2++)
 		{
-			averagedData[index] += formattedData[index + index2];
+			der += tempArray[index + index2];
 		}
 
-		averagedData[index] /= MAF;
+		tempArray[index] = der / MAF;
 	}
 
-	// Use derivatives to calculate time between beats
-	for(samp=0; samp<(TOTAL_SIZE - MAF - 1); samp++)
+//	printf("Derivative Smoothed. Three Random Values: \n %f, %f, %f \n", tempArray[10], tempArray[100], tempArray[500]);
+
+	// Determine largest negative value
+	double max = -1.0;
+
+	for(index = 0; index < totalDerSmooth; index++)
 	{
-		slope = (1.0*(averagedData[samp+1] - averagedData[samp-1])) / (1.0*(timeKeep[MAF+samp+1] - timeKeep[MAF+samp-1]));
-		printf("%f \n", slope);
-
-		if(slope > slopeThresh)
-		{
-			posSlope++;
-			negSlope--;
-
-			if(negSlope < 0) negSlope = 0;
-
-			if((posSlope > posThresh)&&(highBeat==0))
-			{
-				highBeat = 1;
-	printf("High Beat = 1\n");
-				posSlope = 0;
-				negSlope = 0;
-				markTime[timeIndex] = timeKeep[samp+4];
-				timeIndex++;
-			}
-		}
-		else if(slope < negSlopeThresh)
-		{
-			negSlope++;
-			posSlope--;
-
-			if(posSlope < 0) posSlope = 0;
-
-			if((negSlope > negThresh)&&(highBeat==1))
-			{
-	printf("High Beat = 0\n");
-				highBeat = 0;
-				posSlope = 0;
-				negSlope = 0;
-			}
-		}
+		if(tempArray[index] < max) max = tempArray[index];
 	}
+
+//	printf("Largest Value Found. Value = %f \n", max);
+
+	// Create threshold
+	double thresh = max * 0.4;
+
+//	printf("Threshold Calculated. Threshold = %f \n", thresh);
+
+	// Find locations of zero crossing
+	int flag = 0;
+	int peaks = 0;
+	timeIndexStart += ((MAF-1)/2);
+
+	for(index = 0; index < totalDerSmooth; index++)
+	{
+		// Set flag if threshold is hit
+		if((tempArray[index] <= thresh)&&(flag == 0))
+		{
+			flag = 1;
+
+			// Keep checking previous samples until the
+			// derivative is 0
+			index2 = index;
+
+			while(tempArray[index2] < 0.0)
+			{
+				index2--;
+			}
+
+//			printf("Value Above 0: %f \n", tempArray[index2]);
+
+			// Store time stamp for later use
+			markTime[peaks] = timeKeep[timeIndexStart + index2];
+			peaks++;
+
+			// Skip several samples to avoid glitches
+			index += 6;
+		}
+
+		// Reset flag only when the signal passes zero again
+		if(tempArray[index] >= 0.0) flag = 0;
+
+	}
+
+//	printf("Negative Peaks Found. \n");
 
 	// Calculate heartrate from the difference in times
-	int timeSamples = timeIndex;
-	int heartRateArray[50];
-	int heartRate = 0;
-	int i;
+	heartRate = 0.0;
+	int skips = 1;
 
-	printf("%d samples recorded. \n", timeSamples);
-
-	for(i=0; i<(timeIndex-1); i++)
+	for(index = 1; index < peaks; index++)
 	{
-		heartRateArray[i] = 60000/(markTime[i+1] - markTime[i]);
-		printf("HR: %d \n", heartRateArray[i]);
-		heartRate += heartRateArray[i];
+		if((markTime[index] - markTime[index - 1]) > 1500)
+		{
+			skips++;
+		}
+		else
+		{
+			heartRate += (double)(markTime[index] - markTime[index - 1]);
+		}
 	}
 
-	heartRate /= (timeIndex -1);
-	printf("Heart Rate: %d \n", heartRate);
+//	printf("Heart Rate Calculated! \n\n");
+
+	// Average time in mili seconds
+	heartRate /= (peaks-skips);
+
+	// HR in seconds
+	heartRate = 1000.0 / heartRate;
+
+	// HR in bpm
+	heartRate *= 60.0;
+
+	printf("Heart Rate: %f \n", heartRate);
 
 	return 0;
 }
